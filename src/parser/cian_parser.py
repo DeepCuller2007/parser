@@ -3,7 +3,9 @@ import os
 import re
 import time
 from dataclasses import dataclass, asdict
-from typing import List, Optional
+from datetime import datetime, timezone
+from io import BytesIO
+from typing import List, Optional, Set
 from urllib.parse import urljoin
 
 import requests
@@ -19,22 +21,31 @@ class ParserConfig:
     max_pages: Optional[int] = None
     max_offers: Optional[int] = None
     download_images: bool = False
+    image_storage: str = "local"
     headless: bool = True
     timeout_ms: int = 30000
     pause_between_pages: float = 2.0
     pause_between_offers: float = 1.5
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "parser"
+    minio_secret_key: str = "parser-secret"
+    minio_bucket: str = "cian-photos"
+    minio_secure: bool = False
 
 
 @dataclass
 class OfferData:
     offer_id: str
     url: str
+    source_job: Optional[str] = None
+    parsed_at: Optional[str] = None
     price_rub: Optional[int] = None
     price_per_m2_rub: Optional[int] = None
     area_m2: Optional[float] = None
     floor: Optional[int] = None
     floors_total: Optional[int] = None
     address: Optional[str] = None
+    description: Optional[str] = None
 
     living_area_m2: Optional[float] = None
     kitchen_area_m2: Optional[float] = None
@@ -67,8 +78,14 @@ class CianPlaywrightParser:
     def __init__(self, config: ParserConfig):
         self.config = config
 
-    def run(self) -> List[OfferData]:
+    def run(
+        self,
+        skip_offer_ids: Optional[Set[str]] = None,
+        source_job: Optional[str] = None,
+        target_count: Optional[int] = None,
+    ) -> List[OfferData]:
         results: List[OfferData] = []
+        known_offer_ids = set(skip_offer_ids or set())
 
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -93,9 +110,20 @@ class CianPlaywrightParser:
             print(f"[INFO] Итого ссылок на объявления: {len(offer_urls)}")
 
             for url in offer_urls:
+                if target_count is not None and len(results) >= target_count:
+                    break
+
+                offer_id = self._extract_offer_id_from_url(url)
+                if offer_id in known_offer_ids:
+                    print(f"[INFO] Пропускаю уже собранное объявление: {offer_id}")
+                    continue
+
                 offer = self.parse_offer(context, url)
                 if offer is not None:
+                    offer.source_job = source_job
+                    offer.parsed_at = datetime.now(timezone.utc).isoformat()
                     results.append(offer)
+                    known_offer_ids.add(offer.offer_id)
                 time.sleep(self.config.pause_between_offers)
 
             browser.close()
@@ -131,6 +159,9 @@ class CianPlaywrightParser:
                         seen.add(url)
                         urls.append(url)
                         new_count += 1
+                        if self.config.max_offers is not None and len(urls) >= self.config.max_offers:
+                            print(f"[INFO] Достигнут лимит ссылок: {self.config.max_offers}")
+                            return urls
 
                 print(f"[INFO] На странице найдено новых ссылок: {new_count}")
                 print(f"[INFO] Найдено ссылок всего: {len(urls)}")
@@ -166,6 +197,10 @@ class CianPlaywrightParser:
 
         return urls
 
+    def _extract_offer_id_from_url(self, url: str) -> str:
+        offer_id_match = re.search(r"/sale/flat/(\d+)/", url)
+        return offer_id_match.group(1) if offer_id_match else "unknown"
+
     def parse_offer(self, context, url: str) -> Optional[OfferData]:
         print(f"[INFO] Открываю объявление: {url}")
 
@@ -188,8 +223,7 @@ class CianPlaywrightParser:
             #     f.write(text)
 
 
-            offer_id_match = re.search(r"/sale/flat/(\d+)/", url)
-            offer_id = offer_id_match.group(1) if offer_id_match else "unknown"
+            offer_id = self._extract_offer_id_from_url(url)
 
             area = self._extract_area(text)
 
@@ -203,6 +237,7 @@ class CianPlaywrightParser:
             floor, floors_total = self._extract_floor_info(text)
 
             address = self._extract_address(text, html)
+            description = self._extract_description(text, html)
 
             living_area = self._extract_living_area(text)
             kitchen_area = self._extract_kitchen_area(text)
@@ -238,6 +273,7 @@ class CianPlaywrightParser:
                 floor=floor,
                 floors_total=floors_total,
                 address=address,
+                description=description,
 
                 rooms=rooms,
                 housing_type=housing_type,
@@ -423,6 +459,99 @@ class CianPlaywrightParser:
                 return cleaned
         return None
 
+    def _extract_description(self, text: str, html: str) -> Optional[str]:
+        description = self._extract_description_from_text(text)
+        if description:
+            return description
+
+        return self._extract_description_from_html(html)
+
+    def _extract_description_from_text(self, text: str) -> Optional[str]:
+        lines = [line.strip() for line in text.splitlines()]
+        stop_headers = {
+            "О квартире",
+            "О доме",
+            "О жилом комплексе",
+            "Расположение",
+            "Инфраструктура",
+            "Документы",
+            "Условия сделки",
+            "Как купить",
+            "Похожие объявления",
+            "Контакты",
+            "Позвоните продавцу",
+            "Написать продавцу",
+            "Спросите в чате",
+            "Показать телефон",
+        }
+
+        for i, line in enumerate(lines):
+            if line.lower() != "описание":
+                continue
+
+            description_lines = []
+            for next_line in lines[i + 1:]:
+                if not next_line:
+                    if description_lines:
+                        description_lines.append("")
+                    continue
+
+                if next_line in stop_headers:
+                    break
+
+                description_lines.append(next_line)
+
+            description = self._clean_description("\n".join(description_lines))
+            if description:
+                return description
+
+        return None
+
+    def _extract_description_from_html(self, html: str) -> Optional[str]:
+        patterns = [
+            r'"description"\s*:\s*"((?:\\.|[^"\\])*)"',
+            r'<meta\s+name="description"\s+content="([^"]+)"',
+            r'<meta\s+property="og:description"\s+content="([^"]+)"',
+        ]
+
+        for pattern in patterns:
+            matches = re.findall(pattern, html, flags=re.IGNORECASE)
+            for match in matches:
+                candidate = match
+                if pattern.startswith('"description"'):
+                    try:
+                        candidate = json.loads(f'"{candidate}"')
+                    except json.JSONDecodeError:
+                        pass
+
+                description = self._clean_description(candidate)
+                if description:
+                    return description
+
+        return None
+
+    def _clean_description(self, value: str) -> Optional[str]:
+        value = re.sub(r"<[^>]+>", " ", value)
+        value = value.replace("&nbsp;", " ")
+        value = value.replace("&quot;", '"')
+        value = value.replace("&amp;", "&")
+        value = re.sub(r"[ \t\r\f\v]+", " ", value)
+        value = re.sub(r"\n\s*\n\s*\n+", "\n\n", value)
+        value = value.strip()
+
+        if not value or len(value) < 20:
+            return None
+
+        forbidden_fragments = (
+            "Циан",
+            "Купить квартиру",
+            "Объявление о продаже",
+        )
+        if any(fragment.lower() in value.lower() for fragment in forbidden_fragments) and len(value) < 120:
+            return None
+
+        return value
+
     def _extract_image_urls(self, html: str) -> List[str]:
         urls = set()
 
@@ -438,6 +567,9 @@ class CianPlaywrightParser:
         return sorted(urls)
 
     def _download_images(self, offer_id: str, image_urls: List[str]) -> List[str]:
+        if self.config.image_storage.lower() == "minio":
+            return self._upload_images_to_minio(offer_id, image_urls)
+
         save_dir = os.path.join("data", "images", offer_id)
         os.makedirs(save_dir, exist_ok=True)
 
@@ -465,6 +597,59 @@ class CianPlaywrightParser:
                 saved_paths.append(file_path)
             except Exception as e:
                 print(f"[WARN] Не скачалось изображение {image_url}: {e}")
+
+        return saved_paths
+
+    def _upload_images_to_minio(self, offer_id: str, image_urls: List[str]) -> List[str]:
+        try:
+            from minio import Minio
+        except ImportError as e:
+            raise RuntimeError("Install the 'minio' package or run 'uv sync' before using MinIO storage.") from e
+
+        client = Minio(
+            endpoint=self.config.minio_endpoint,
+            access_key=self.config.minio_access_key,
+            secret_key=self.config.minio_secret_key,
+            secure=self.config.minio_secure,
+        )
+
+        try:
+            if not client.bucket_exists(self.config.minio_bucket):
+                client.make_bucket(self.config.minio_bucket)
+        except Exception as e:
+            print(f"[WARN] MinIO недоступен, изображения не будут сохранены: {e}")
+            return []
+
+        saved_paths = []
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            )
+        }
+
+        for i, image_url in enumerate(image_urls, start=1):
+            ext_match = re.search(r"\.(jpg|jpeg|png|webp)", image_url, flags=re.IGNORECASE)
+            ext = ext_match.group(1).lower() if ext_match else "jpg"
+            object_name = f"offers/{offer_id}/{i}.{ext}"
+
+            try:
+                response = requests.get(image_url, headers=headers, timeout=30)
+                response.raise_for_status()
+                content_type = response.headers.get("Content-Type", f"image/{ext}")
+
+                client.put_object(
+                    bucket_name=self.config.minio_bucket,
+                    object_name=object_name,
+                    data=BytesIO(response.content),
+                    length=len(response.content),
+                    content_type=content_type,
+                )
+
+                saved_paths.append(f"minio://{self.config.minio_bucket}/{object_name}")
+            except Exception as e:
+                print(f"[WARN] Не загрузилось изображение в MinIO {image_url}: {e}")
 
         return saved_paths
 
