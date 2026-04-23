@@ -1,15 +1,26 @@
 import json
 import os
+import shutil
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from parser.cian_parser import CianPlaywrightParser, ParserConfig
 
 
-DEFAULT_JOBS_PATH = "configs/search_jobs.json"
-DEFAULT_OUTPUT_PATH = "data/raw/listings.json"
-DEFAULT_PROGRESS_PATH = "data/raw/progress.json"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
+DEFAULT_JOBS_PATH = PROJECT_ROOT / "configs/search_jobs.json"
+DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data/raw/listings.json"
+DEFAULT_PROGRESS_PATH = PROJECT_ROOT / "data/raw/progress.json"
+
+
+def _resolve_project_path(path: str | Path) -> Path:
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    return PROJECT_ROOT / path
 
 
 def _get_bool_env(name: str, default: bool) -> bool:
@@ -26,7 +37,8 @@ def _get_int_env(name: str, default: int) -> int:
     return int(value)
 
 
-def _load_env_file(path: str = ".env") -> bool:
+def _load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> bool:
+    path = _resolve_project_path(path)
     if not os.path.exists(path):
         return False
 
@@ -41,21 +53,36 @@ def _load_env_file(path: str = ".env") -> bool:
     return True
 
 
-def _load_json(path: str, default: Any) -> Any:
+def _load_json(path: str | Path, default: Any) -> Any:
+    path = _resolve_project_path(path)
     if not os.path.exists(path):
         return default
+    if os.path.getsize(path) == 0:
+        print(f"[WARN] JSON-файл пустой, использую значение по умолчанию: {path}")
+        return default
 
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        broken_path = path.with_suffix(f"{path.suffix}.broken")
+        shutil.copy2(path, broken_path)
+        print(f"[WARN] JSON-файл поврежден и будет проигнорирован: {path}")
+        print(f"[WARN] Копия поврежденного файла сохранена: {broken_path}")
+        print(f"[WARN] Ошибка JSON: {e}")
+        return default
 
 
-def _save_json(path: str, payload: Any) -> None:
+def _save_json(path: str | Path, payload: Any) -> None:
+    path = _resolve_project_path(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    temp_path = path.with_suffix(f"{path.suffix}.tmp")
+    with open(temp_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+    os.replace(temp_path, path)
 
 
-def _load_jobs(path: str) -> List[Dict[str, Any]]:
+def _load_jobs(path: str | Path) -> List[Dict[str, Any]]:
     jobs = _load_json(path, [])
     if not isinstance(jobs, list):
         raise ValueError(f"Search jobs file must contain a list: {path}")
@@ -123,12 +150,13 @@ def main() -> None:
     env_loaded = _load_env_file()
     if not env_loaded:
         raise SystemExit(
-            "[ERROR] Файл .env не найден. Создайте его командой: Copy-Item .env.example .env"
+            f"[ERROR] Файл .env не найден: {DEFAULT_ENV_PATH}. "
+            "Создайте его командой из корня проекта: Copy-Item .env.example .env"
         )
 
-    jobs_path = os.getenv("SEARCH_JOBS_PATH", DEFAULT_JOBS_PATH)
-    output_path = os.getenv("DATASET_OUTPUT_PATH", DEFAULT_OUTPUT_PATH)
-    progress_path = os.getenv("DATASET_PROGRESS_PATH", DEFAULT_PROGRESS_PATH)
+    jobs_path = _resolve_project_path(os.getenv("SEARCH_JOBS_PATH", DEFAULT_JOBS_PATH))
+    output_path = _resolve_project_path(os.getenv("DATASET_OUTPUT_PATH", DEFAULT_OUTPUT_PATH))
+    progress_path = _resolve_project_path(os.getenv("DATASET_PROGRESS_PATH", DEFAULT_PROGRESS_PATH))
     target_offers = _get_int_env("TARGET_OFFERS", 10_000)
     resume_completed_jobs = _get_bool_env("RESUME_COMPLETED_JOBS", True)
 
@@ -139,6 +167,8 @@ def main() -> None:
     seen_offer_ids = _extract_seen_offer_ids(all_offers)
 
     print(f"[INFO] Загружено поисковых задач: {len(jobs)}")
+    print(f"[INFO] Корень проекта: {PROJECT_ROOT}")
+    print(f"[INFO] Файл .env: {DEFAULT_ENV_PATH}")
     print(f"[INFO] Уже сохранено уникальных объявлений: {len(seen_offer_ids)}")
     print(f"[INFO] Цель датасета: {target_offers}")
     print(f"[INFO] MAX_PAGES_PER_JOB={os.getenv('MAX_PAGES_PER_JOB') or 'не задан'}")

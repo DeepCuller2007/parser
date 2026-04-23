@@ -125,3 +125,38 @@ MAX_OFFERS_PER_JOB=10000
 source_job
 parsed_at
 ```
+
+## Фильтрация датасета
+
+После сбора raw-датасета запустите отдельную Pandera-валидацию:
+
+```powershell
+uv sync
+uv run python src/validation/filter_dataset.py
+```
+
+Скрипт читает:
+
+```text
+data/raw/listings.json
+```
+
+И сохраняет строки, прошедшие строгие правила, в:
+
+```text
+data/processed/listings_valid.json
+```
+
+Ошибки валидации сохраняются в:
+
+```text
+data/processed/listings_validation_errors.csv
+```
+
+Для датасета, где у каждой квартиры обязательно должна быть хотя бы одна фотография в MinIO:
+
+```powershell
+uv run python src/validation/filter_dataset.py --require-photos
+```
+
+Фильтр не валидирует `description`, но сохраняет его в итоговом JSON. Если в старом raw-файле есть `price_per_m2_rub`, фильтр удалит эту колонку из processed-датасета.

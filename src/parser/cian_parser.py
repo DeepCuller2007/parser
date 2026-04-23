@@ -40,15 +40,12 @@ class OfferData:
     source_job: Optional[str] = None
     parsed_at: Optional[str] = None
     price_rub: Optional[int] = None
-    price_per_m2_rub: Optional[int] = None
     area_m2: Optional[float] = None
     floor: Optional[int] = None
     floors_total: Optional[int] = None
     address: Optional[str] = None
     description: Optional[str] = None
 
-    living_area_m2: Optional[float] = None
-    kitchen_area_m2: Optional[float] = None
     build_year: Optional[int] = None
 
     rooms: Optional[int] = None
@@ -227,20 +224,13 @@ class CianPlaywrightParser:
 
             area = self._extract_area(text)
 
-            price_per_m2 = self._extract_price_per_m2(text)
-
-            price = self._extract_main_price(text, price_per_m2=price_per_m2, area=area)
-
-            if price_per_m2 is None and price is not None and area is not None and area > 0:
-                price_per_m2 = round(price / area)
+            price = self._extract_main_price(page, text)
 
             floor, floors_total = self._extract_floor_info(text)
 
             address = self._extract_address(text, html)
             description = self._extract_description(text, html)
 
-            living_area = self._extract_living_area(text)
-            kitchen_area = self._extract_kitchen_area(text)
             build_year = self._extract_build_year(text)
 
             rooms, _ = self._extract_rooms_and_title(text)
@@ -268,7 +258,6 @@ class CianPlaywrightParser:
                 offer_id=offer_id,
                 url=url,
                 price_rub=price,
-                price_per_m2_rub=price_per_m2,
                 area_m2=area,
                 floor=floor,
                 floors_total=floors_total,
@@ -294,8 +283,6 @@ class CianPlaywrightParser:
                 parking=parking,
                 complex_type=complex_type,
 
-                living_area_m2=living_area,
-                kitchen_area_m2=kitchen_area,
                 build_year=build_year,
 
                 image_urls=image_urls,
@@ -344,40 +331,51 @@ class CianPlaywrightParser:
                 return value
         return None
 
-    def _extract_price_per_m2(self, text: str) -> Optional[int]:
-        text = text.replace("\xa0", " ")
+    def _extract_main_price(self, page, text: str) -> Optional[int]:
+        price = self._extract_main_price_from_page(page)
+        if price is not None:
+            return price
 
-        patterns = [
-            r"Цена за метр\s*([0-9][0-9\s]{2,})\s*₽\s*/\s*м²",
-            r"Цена за метр\s*([0-9][0-9\s]{2,})\s*₽/?м²",
-            r"Цена за метр\s*([0-9][0-9\s]{2,})\s*р/?м²",
-            r"([0-9][0-9\s]{2,})\s*₽\s*/\s*м²",
-            r"([0-9][0-9\s]{2,})\s*₽/?м²",
+        return self._extract_main_price_from_text(text)
+
+    def _extract_main_price_from_page(self, page) -> Optional[int]:
+        selectors = [
+            "span[class*='fontSize_28px'][class*='fontWeight_bold']:has-text('₽')",
+            "span[class*='fontSize_28px'][class*='fontWeight_bold']",
+            "span[style*='font-size: 28px']:has-text('₽')",
         ]
 
-        for pattern in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match:
-                value = re.sub(r"\D", "", match.group(1))
-                if value.isdigit():
-                    value = int(value)
-                    if 10_000 <= value <= 10_000_000:
-                        return value
+        for selector in selectors:
+            try:
+                locator = page.locator(selector)
+                count = min(locator.count(), 5)
+                for i in range(count):
+                    price = self._parse_price_text(locator.nth(i).inner_text(timeout=1500))
+                    if price is not None:
+                        return price
+            except Exception:
+                continue
 
         return None
 
-    def _extract_main_price(
-        self,
-        text: str,
-        price_per_m2: Optional[int] = None,
-        area: Optional[float] = None
-    ) -> Optional[int]:
+    def _parse_price_text(self, value: str) -> Optional[int]:
+        raw = re.sub(r"\D", "", value)
+        if not raw.isdigit():
+            return None
+
+        price = int(raw)
+        if 1_000_000 <= price <= 2_000_000_000:
+            return price
+
+        return None
+
+    def _extract_main_price_from_text(self, text: str) -> Optional[int]:
         text = text.replace("\xa0", " ")
 
         candidates = []
 
         patterns = [
-            r"([0-9][0-9\s]{5,})\s*₽",
+            r"([0-9][0-9\s]{5,})\s*₽(?!\s*/\s*м²)",
             r"([0-9][0-9\s]{5,})\s*руб\.?",
             r"([0-9][0-9\s]{5,})\s*р\b",
         ]
@@ -385,36 +383,17 @@ class CianPlaywrightParser:
         for pattern in patterns:
             matches = re.findall(pattern, text, flags=re.IGNORECASE)
             for m in matches:
-                value = re.sub(r"\D", "", m)
-                if value.isdigit():
-                    num = int(value)
-                    if num >= 1_000_000:
-                        candidates.append(num)
+                price = self._parse_price_text(m)
+                if price is not None:
+                    candidates.append(price)
 
-        candidates = sorted(set(candidates))
+        candidates = list(dict.fromkeys(candidates))
 
 
         if not candidates:
             return None
 
-        if price_per_m2 is not None and area is not None:
-            estimated_price = price_per_m2 * area
-
-            suitable = []
-            for x in candidates:
-                diff_ratio = abs(x - estimated_price) / estimated_price
-                if diff_ratio <= 0.25:
-                    suitable.append(x)
-
-            if suitable:
-                return min(suitable, key=lambda x: abs(x - estimated_price))
-
-        filtered = [x for x in candidates if x != price_per_m2]
-
-        if filtered:
-            return max(filtered)
-
-        return max(candidates)
+        return candidates[0]
 
     def _extract_floor_info(self, text: str) -> tuple[Optional[int], Optional[int]]:
         patterns = [
@@ -862,36 +841,6 @@ class CianPlaywrightParser:
             value = re.sub(r"\s+", " ", match.group(1)).strip()
             if value and len(value) <= 100:
                 return value
-        return None
-
-    def _extract_living_area(self, text: str) -> Optional[float]:
-        patterns = [
-            r"Жилая площадь\s*([0-9]+(?:[.,][0-9]+)?)\s*м²",
-            r"Жилая\s+площадь\s*([0-9]+(?:[.,][0-9]+)?)\s*м²",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match:
-                value = float(match.group(1).replace(",", "."))
-                if 5 <= value <= 1000:
-                    return value
-
-        return None
-
-    def _extract_kitchen_area(self, text: str) -> Optional[float]:
-        patterns = [
-            r"Площадь кухни\s*([0-9]+(?:[.,][0-9]+)?)\s*м²",
-            r"Кухня\s*([0-9]+(?:[.,][0-9]+)?)\s*м²",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match:
-                value = float(match.group(1).replace(",", "."))
-                if 2 <= value <= 500:
-                    return value
-
         return None
 
     def _extract_build_year(self, text: str) -> Optional[int]:
