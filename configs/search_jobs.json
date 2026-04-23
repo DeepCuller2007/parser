@@ -1,7 +1,44 @@
 [
   {
-    "name": "cian_kupit_kvartiru",
-    "search_url": "https://www.cian.ru/kupit-kvartiru/",
-    "max_pages": 30
+    "name": "moscow_sale_page_2",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&offer_type=flat&p=2&region=1",
+    "max_pages": 100,
+    "max_offers": 200
+  },
+  {
+    "name": "studio_flats",
+    "search_url": "https://www.cian.ru/kupit-kvartiru-studiu/",
+    "max_pages": 100,
+    "max_offers": 200
+  },
+  {
+    "name": "newbuild_region_1",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&object_type%5B0%5D=2&offer_type=flat&region=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 200
+  },
+  {
+    "name": "secondary_3room_repair",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&object_type%5B0%5D=1&offer_type=flat&region=1&repair%5B0%5D=1&room3=1",
+    "max_pages": 100,
+    "max_offers": 200
+  },
+  {
+    "name": "secondary_3room_repair_walking_time",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&object_type%5B0%5D=1&offer_type=flat&region=1&repair%5B0%5D=1&room3=1&sort=walking_time",
+    "max_pages": 100,
+    "max_offers": 200
+  },
+  {
+    "name": "three_and_seven_room",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&offer_type=flat&region=1&room3=1&room7=1",
+    "max_pages": 100,
+    "max_offers": 200
+  },
+  {
+    "name": "two_four_seven_room",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&offer_type=flat&region=1&room2=1&room4=1&room7=1",
+    "max_pages": 100,
+    "max_offers": 200
   }
 ]

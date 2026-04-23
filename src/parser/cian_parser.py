@@ -290,7 +290,11 @@ class CianPlaywrightParser:
             )
 
             if self.config.download_images and offer.image_urls:
-                offer.image_paths = self._download_images(offer.offer_id, offer.image_urls)
+                try:
+                    offer.image_paths = self._download_images(offer.offer_id, offer.image_urls)
+                except Exception as e:
+                    print(f"[WARN] Изображения для объявления {offer.offer_id} не сохранены: {e}")
+                    offer.image_paths = []
 
             return offer
 
@@ -582,8 +586,9 @@ class CianPlaywrightParser:
     def _upload_images_to_minio(self, offer_id: str, image_urls: List[str]) -> List[str]:
         try:
             from minio import Minio
-        except ImportError as e:
-            raise RuntimeError("Install the 'minio' package or run 'uv sync' before using MinIO storage.") from e
+        except ImportError:
+            print("[WARN] Пакет minio не установлен, изображения не будут сохранены.")
+            return []
 
         client = Minio(
             endpoint=self.config.minio_endpoint,
