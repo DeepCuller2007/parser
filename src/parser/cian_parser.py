@@ -104,7 +104,6 @@ class CianPlaywrightParser:
             page.set_default_timeout(self.config.timeout_ms)
 
             offer_urls = self.collect_offer_urls(page)
-            print(f"[INFO] Итого ссылок на объявления: {len(offer_urls)}")
 
             for url in offer_urls:
                 if target_count is not None and len(results) >= target_count:
@@ -112,7 +111,6 @@ class CianPlaywrightParser:
 
                 offer_id = self._extract_offer_id_from_url(url)
                 if offer_id in known_offer_ids:
-                    print(f"[INFO] Пропускаю уже собранное объявление: {offer_id}")
                     continue
 
                 offer = self.parse_offer(context, url)
@@ -138,7 +136,6 @@ class CianPlaywrightParser:
                 break
 
             page_url = self._build_page_url(self.config.search_url, page_num)
-            print(f"[INFO] Сканирую страницу выдачи: {page_url}")
 
             try:
                 page.goto(page_url, wait_until="domcontentloaded")
@@ -157,11 +154,7 @@ class CianPlaywrightParser:
                         urls.append(url)
                         new_count += 1
                         if self.config.max_offers is not None and len(urls) >= self.config.max_offers:
-                            print(f"[INFO] Достигнут лимит ссылок: {self.config.max_offers}")
                             return urls
-
-                print(f"[INFO] На странице найдено новых ссылок: {new_count}")
-                print(f"[INFO] Найдено ссылок всего: {len(urls)}")
 
                 if self.config.max_offers is not None and len(urls) >= self.config.max_offers:
                     return urls[:self.config.max_offers]
@@ -172,7 +165,6 @@ class CianPlaywrightParser:
                     empty_pages_in_row = 0
 
                 if empty_pages_in_row >= 2:
-                    print("[INFO] Новые объявления больше не находятся, останавливаю сбор ссылок.")
                     break
 
                 page_num += 1
@@ -199,8 +191,6 @@ class CianPlaywrightParser:
         return offer_id_match.group(1) if offer_id_match else "unknown"
 
     def parse_offer(self, context, url: str) -> Optional[OfferData]:
-        print(f"[INFO] Открываю объявление: {url}")
-
         page = context.new_page()
         page.set_default_timeout(self.config.timeout_ms)
 

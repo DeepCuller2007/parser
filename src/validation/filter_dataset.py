@@ -64,8 +64,8 @@ def _filter_valid_rows(df: pd.DataFrame, schema: pa.DataFrameSchema) -> Tuple[pd
             if not all_failure_cases:
                 return valid_df, pd.DataFrame()
             return valid_df, pd.concat(all_failure_cases, ignore_index=True)
-        except pa.errors.SchemaErrors as e:
-            failure_cases = e.failure_cases.copy()
+        except pa.errors.SchemaErrors as error:
+            failure_cases = error.failure_cases.copy()
             all_failure_cases.append(failure_cases)
 
             failed_indexes = {
@@ -99,11 +99,6 @@ def main() -> None:
     errors_path = _resolve_project_path(args.errors)
 
     schema = photo_listings_schema if args.require_photos else raw_listings_schema
-    print(f"[INFO] Project root: {PROJECT_ROOT}")
-    print(f"[INFO] Input dataset: {input_path}")
-    print(f"[INFO] Output dataset: {output_path}")
-    print(f"[INFO] Errors report: {errors_path}")
-
     raw_df = _load_listings(input_path)
     valid_df, failure_cases = _filter_valid_rows(raw_df, schema)
 

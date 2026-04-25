@@ -24,7 +24,7 @@ def _load_env_file(path: str = ".env") -> None:
             os.environ.setdefault(name.strip(), value.strip().strip("'\""))
 
 
-def main():
+def main() -> None:
     _load_env_file()
 
     config = ParserConfig(
@@ -44,7 +44,7 @@ def main():
     offers = parser.run()
     parser.save_json(offers, "data/raw/listings.json")
 
-    print(f"Сохранено объявлений: {len(offers)}")
+    print(f"Saved listings: {len(offers)}")
 
 
 if __name__ == "__main__":

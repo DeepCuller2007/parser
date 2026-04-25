@@ -58,24 +58,24 @@ def _load_json(path: str | Path, default: Any) -> Any:
     if not os.path.exists(path):
         return default
     if os.path.getsize(path) == 0:
-        print(f"[WARN] JSON-файл пустой, использую значение по умолчанию: {path}")
+        print(f"[WARN] JSON file is empty, using default value: {path}")
         return default
 
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError as error:
         broken_path = path.with_suffix(f"{path.suffix}.broken")
         shutil.copy2(path, broken_path)
-        print(f"[WARN] JSON-файл поврежден и будет проигнорирован: {path}")
-        print(f"[WARN] Копия поврежденного файла сохранена: {broken_path}")
-        print(f"[WARN] Ошибка JSON: {e}")
+        print(f"[WARN] JSON file is corrupted and will be ignored: {path}")
+        print(f"[WARN] Backup copy saved to: {broken_path}")
+        print(f"[WARN] JSON error: {error}")
         return default
 
 
 def _save_json(path: str | Path, payload: Any) -> None:
     path = _resolve_project_path(path)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(path.parent, exist_ok=True)
     temp_path = path.with_suffix(f"{path.suffix}.tmp")
     with open(temp_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -128,7 +128,7 @@ def _build_parser_config(job: Dict[str, Any], remaining_target: int) -> ParserCo
 
 
 def _save_progress(
-    path: str,
+    path: str | Path,
     target_offers: int,
     total_saved: int,
     completed_jobs: List[str],
@@ -150,8 +150,8 @@ def main() -> None:
     env_loaded = _load_env_file()
     if not env_loaded:
         raise SystemExit(
-            f"[ERROR] Файл .env не найден: {DEFAULT_ENV_PATH}. "
-            "Создайте его командой из корня проекта: Copy-Item .env.example .env"
+            f"[ERROR] .env file not found: {DEFAULT_ENV_PATH}. "
+            "Create it from the project root with: Copy-Item .env.example .env"
         )
 
     jobs_path = _resolve_project_path(os.getenv("SEARCH_JOBS_PATH", DEFAULT_JOBS_PATH))
@@ -166,29 +166,18 @@ def main() -> None:
     completed_jobs = list(progress.get("completed_jobs", [])) if resume_completed_jobs else []
     seen_offer_ids = _extract_seen_offer_ids(all_offers)
 
-    print(f"[INFO] Загружено поисковых задач: {len(jobs)}")
-    print(f"[INFO] Корень проекта: {PROJECT_ROOT}")
-    print(f"[INFO] Файл .env: {DEFAULT_ENV_PATH}")
-    print(f"[INFO] Уже сохранено уникальных объявлений: {len(seen_offer_ids)}")
-    print(f"[INFO] Цель датасета: {target_offers}")
-    print(f"[INFO] MAX_PAGES_PER_JOB={os.getenv('MAX_PAGES_PER_JOB') or 'не задан'}")
-    print(f"[INFO] MAX_OFFERS_PER_JOB={os.getenv('MAX_OFFERS_PER_JOB') or 'не задан'}")
-
     for job in jobs:
         job_name = job["name"]
         if len(seen_offer_ids) >= target_offers:
             break
 
         if resume_completed_jobs and job_name in completed_jobs:
-            print(f"[INFO] Пропускаю уже завершенную задачу: {job_name}")
             continue
 
         remaining_target = target_offers - len(seen_offer_ids)
-        print(f"[INFO] Старт задачи {job_name}, осталось собрать: {remaining_target}")
         _save_progress(progress_path, target_offers, len(seen_offer_ids), completed_jobs, current_job=job_name)
 
         config = _build_parser_config(job, remaining_target)
-        print(f"[INFO] Лимиты задачи: max_pages={config.max_pages}, max_offers={config.max_offers}")
         parser = CianPlaywrightParser(config)
         offers = parser.run(
             skip_offer_ids=seen_offer_ids,
@@ -213,12 +202,14 @@ def main() -> None:
 
         _save_json(output_path, all_offers)
         _save_progress(progress_path, target_offers, len(seen_offer_ids), completed_jobs)
-        print(f"[INFO] Задача {job_name} завершена, новых объявлений: {new_count}")
-        print(f"[INFO] Всего уникальных объявлений: {len(seen_offer_ids)}")
+        print(
+            f"[INFO] Job '{job_name}' finished: added {new_count} new listings, "
+            f"total unique listings {len(seen_offer_ids)}."
+        )
 
     _save_json(output_path, all_offers)
     _save_progress(progress_path, target_offers, len(seen_offer_ids), completed_jobs)
-    print(f"[INFO] Готово. Сохранено уникальных объявлений: {len(seen_offer_ids)}")
+    print(f"[INFO] Dataset collection finished. Saved {len(seen_offer_ids)} unique listings.")
 
 
 if __name__ == "__main__":
