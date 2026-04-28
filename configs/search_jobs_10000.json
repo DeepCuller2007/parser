@@ -1,0 +1,188 @@
+[
+  {
+    "name": "secondary_flats_landing",
+    "search_url": "https://www.cian.ru/kupit-kvartiru-vtorichka/",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_flats_landing",
+    "search_url": "https://www.cian.ru/kupit-kvartiru-novostroyki/",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "studio_flats",
+    "search_url": "https://www.cian.ru/kupit-kvartiru-studiu/",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room1_under_10m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=10000000&object_type%5B0%5D=1&offer_type=flat&region=1&room1=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room1_10m_14m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=14000000&minprice=10000000&object_type%5B0%5D=1&offer_type=flat&region=1&room1=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room1_14m_20m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=20000000&minprice=14000000&object_type%5B0%5D=1&offer_type=flat&region=1&room1=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room1_over_20m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&minprice=20000000&object_type%5B0%5D=1&offer_type=flat&region=1&room1=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room2_under_14m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=14000000&object_type%5B0%5D=1&offer_type=flat&region=1&room2=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room2_14m_20m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=20000000&minprice=14000000&object_type%5B0%5D=1&offer_type=flat&region=1&room2=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room2_20m_30m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=30000000&minprice=20000000&object_type%5B0%5D=1&offer_type=flat&region=1&room2=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room2_over_30m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&minprice=30000000&object_type%5B0%5D=1&offer_type=flat&region=1&room2=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room3_under_20m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=20000000&object_type%5B0%5D=1&offer_type=flat&region=1&room3=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room3_20m_35m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=35000000&minprice=20000000&object_type%5B0%5D=1&offer_type=flat&region=1&room3=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room3_over_35m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&minprice=35000000&object_type%5B0%5D=1&offer_type=flat&region=1&room3=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room4plus_under_35m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=35000000&object_type%5B0%5D=1&offer_type=flat&region=1&room4=1&room5=1&room6=1&room7=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "secondary_room4plus_over_35m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&minprice=35000000&object_type%5B0%5D=1&offer_type=flat&region=1&room4=1&room5=1&room6=1&room7=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_room1_under_12m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=12000000&object_type%5B0%5D=2&offer_type=flat&region=1&room1=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_room1_12m_18m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=18000000&minprice=12000000&object_type%5B0%5D=2&offer_type=flat&region=1&room1=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_room1_over_18m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&minprice=18000000&object_type%5B0%5D=2&offer_type=flat&region=1&room1=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_room2_under_18m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=18000000&object_type%5B0%5D=2&offer_type=flat&region=1&room2=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_room2_18m_28m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=28000000&minprice=18000000&object_type%5B0%5D=2&offer_type=flat&region=1&room2=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_room2_over_28m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&minprice=28000000&object_type%5B0%5D=2&offer_type=flat&region=1&room2=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_room3_under_30m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=30000000&object_type%5B0%5D=2&offer_type=flat&region=1&room3=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_room3_over_30m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&minprice=30000000&object_type%5B0%5D=2&offer_type=flat&region=1&room3=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "newbuild_room4plus",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&object_type%5B0%5D=2&offer_type=flat&region=1&room4=1&room5=1&room6=1&room7=1&with_newobject=1",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "all_moscow_under_10m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=10000000&offer_type=flat&region=1&sort=creation_date_desc",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "all_moscow_10m_15m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=15000000&minprice=10000000&offer_type=flat&region=1&sort=creation_date_desc",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "all_moscow_15m_25m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=25000000&minprice=15000000&offer_type=flat&region=1&sort=creation_date_desc",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "all_moscow_25m_40m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&maxprice=40000000&minprice=25000000&offer_type=flat&region=1&sort=creation_date_desc",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "all_moscow_over_40m",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&minprice=40000000&offer_type=flat&region=1&sort=creation_date_desc",
+    "max_pages": 100,
+    "max_offers": 700
+  },
+  {
+    "name": "all_moscow_walking_time",
+    "search_url": "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&offer_type=flat&region=1&sort=walking_time",
+    "max_pages": 100,
+    "max_offers": 700
+  }
+]

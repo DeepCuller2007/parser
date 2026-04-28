@@ -1,4 +1,5 @@
 [core]
-    remote = localstore
-['remote "localstore"']
-    url = C:\Users\AlexOrlov\dvc-storage\parser-data
+
+# Keep machine-specific DVC remotes in .dvc/config.local.
+# Example:
+#   dvc remote add -f -l localstore /path/to/dvc-storage

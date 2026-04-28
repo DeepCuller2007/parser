@@ -1,15 +1,18 @@
+import asyncio
 import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 from urllib.parse import urljoin
 
 import requests
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright, TimeoutError as AsyncPlaywrightTimeoutError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 
 BASE_URL = "https://www.cian.ru"
@@ -26,6 +29,13 @@ class ParserConfig:
     timeout_ms: int = 30000
     pause_between_pages: float = 2.0
     pause_between_offers: float = 1.5
+    offer_concurrency: int = 3
+    image_concurrency: int = 2
+    max_images_per_offer: Optional[int] = None
+    block_assets: bool = True
+    search_wait_ms: int = 1200
+    scroll_wait_ms: int = 800
+    offer_wait_ms: int = 2000
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "parser"
     minio_secret_key: str = "parser-secret"
@@ -81,16 +91,29 @@ class CianPlaywrightParser:
         source_job: Optional[str] = None,
         target_count: Optional[int] = None,
     ) -> List[OfferData]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.run_async(skip_offer_ids, source_job, target_count))
+
+        raise RuntimeError("Use 'await run_async(...)' when running inside an active asyncio loop.")
+
+    async def run_async(
+        self,
+        skip_offer_ids: Optional[Set[str]] = None,
+        source_job: Optional[str] = None,
+        target_count: Optional[int] = None,
+    ) -> List[OfferData]:
         results: List[OfferData] = []
         known_offer_ids = set(skip_offer_ids or set())
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
                 headless=self.config.headless,
                 slow_mo=0,
             )
 
-            context = browser.new_context(
+            context = await browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -100,30 +123,153 @@ class CianPlaywrightParser:
                 locale="ru-RU",
             )
 
-            page = context.new_page()
+            if self.config.block_assets:
+                await context.route("**/*", self._route_non_document_assets)
+
+            page = await context.new_page()
             page.set_default_timeout(self.config.timeout_ms)
+            offer_urls = await self.collect_offer_urls_async(page)
+            await page.close()
 
-            offer_urls = self.collect_offer_urls(page)
-
+            result_lock = asyncio.Lock()
+            queue: asyncio.Queue[str] = asyncio.Queue()
             for url in offer_urls:
-                if target_count is not None and len(results) >= target_count:
-                    break
-
                 offer_id = self._extract_offer_id_from_url(url)
                 if offer_id in known_offer_ids:
                     continue
+                queue.put_nowait(url)
 
-                offer = self.parse_offer(context, url)
+            worker_count = min(max(1, self.config.offer_concurrency), queue.qsize())
+            workers = [
+                asyncio.create_task(
+                    self._parse_offer_worker(
+                        context=context,
+                        queue=queue,
+                        results=results,
+                        known_offer_ids=known_offer_ids,
+                        result_lock=result_lock,
+                        source_job=source_job,
+                        target_count=target_count,
+                    )
+                )
+                for _ in range(worker_count)
+            ]
+            if workers:
+                await asyncio.gather(*workers)
+
+            await browser.close()
+
+        return results
+
+    async def _route_non_document_assets(self, route, request) -> None:
+        if request.resource_type in {"image", "media", "font"}:
+            await route.abort()
+            return
+
+        await route.continue_()
+
+    async def _parse_offer_worker(
+        self,
+        context,
+        queue: asyncio.Queue[str],
+        results: List[OfferData],
+        known_offer_ids: Set[str],
+        result_lock: asyncio.Lock,
+        source_job: Optional[str],
+        target_count: Optional[int],
+    ) -> None:
+        while True:
+            async with result_lock:
+                if target_count is not None and len(results) >= target_count:
+                    return
+
+            try:
+                url = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+
+            try:
+                offer_id = self._extract_offer_id_from_url(url)
+                async with result_lock:
+                    if offer_id in known_offer_ids:
+                        continue
+                    known_offer_ids.add(offer_id)
+
+                offer = await self.parse_offer_async(context, url)
                 if offer is not None:
                     offer.source_job = source_job
                     offer.parsed_at = datetime.now(timezone.utc).isoformat()
-                    results.append(offer)
-                    known_offer_ids.add(offer.offer_id)
-                time.sleep(self.config.pause_between_offers)
 
-            browser.close()
+                    async with result_lock:
+                        if target_count is None or len(results) < target_count:
+                            results.append(offer)
+            finally:
+                queue.task_done()
 
-        return results
+            if self.config.pause_between_offers > 0:
+                await asyncio.sleep(self.config.pause_between_offers)
+
+    async def collect_offer_urls_async(self, page) -> List[str]:
+        urls: List[str] = []
+        seen = set()
+        page_num = 1
+        empty_pages_in_row = 0
+
+        while True:
+            if self.config.max_pages is not None and page_num > self.config.max_pages:
+                break
+
+            page_url = self._build_page_url(self.config.search_url, page_num)
+
+            try:
+                await page.goto(page_url, wait_until="domcontentloaded")
+                await page.wait_for_timeout(self.config.search_wait_ms)
+
+                await page.mouse.wheel(0, 2000)
+                await page.wait_for_timeout(self.config.scroll_wait_ms)
+
+                html = await page.content()
+                page_urls = self._extract_offer_urls_from_html(html)
+
+                new_count = 0
+                for url in page_urls:
+                    if url not in seen:
+                        seen.add(url)
+                        urls.append(url)
+                        new_count += 1
+                        if self.config.max_offers is not None and len(urls) >= self.config.max_offers:
+                            return urls
+
+                if self.config.max_offers is not None and len(urls) >= self.config.max_offers:
+                    return urls[:self.config.max_offers]
+
+                if new_count == 0:
+                    empty_pages_in_row += 1
+                else:
+                    empty_pages_in_row = 0
+
+                if empty_pages_in_row >= 2:
+                    break
+
+                page_num += 1
+                if self.config.pause_between_pages > 0:
+                    await asyncio.sleep(self.config.pause_between_pages)
+
+            except AsyncPlaywrightTimeoutError:
+                print(f"[ERROR] РўР°Р№РјР°СѓС‚ РїСЂРё РѕС‚РєСЂС‹С‚РёРё СЃС‚СЂР°РЅРёС†С‹ РІС‹РґР°С‡Рё: {page_url}")
+                empty_pages_in_row += 1
+                if empty_pages_in_row >= 2:
+                    break
+                page_num += 1
+
+            except Exception as e:
+                print(f"[ERROR] РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєСЂС‹С‚СЊ СЃС‚СЂР°РЅРёС†Сѓ РІС‹РґР°С‡Рё: {e}")
+                empty_pages_in_row += 1
+                if empty_pages_in_row >= 2:
+                    break
+                page_num += 1
+
+        return urls
 
     def collect_offer_urls(self, page) -> List[str]:
         urls: List[str] = []
@@ -295,6 +441,107 @@ class CianPlaywrightParser:
         finally:
             page.close()
 
+    async def parse_offer_async(self, context, url: str) -> Optional[OfferData]:
+        page = await context.new_page()
+        page.set_default_timeout(self.config.timeout_ms)
+
+        try:
+            await page.goto(url, wait_until="domcontentloaded")
+            await page.wait_for_timeout(self.config.offer_wait_ms)
+
+            os.makedirs("data/raw", exist_ok=True)
+
+            html = await page.content()
+            text = await page.locator("body").inner_text()
+
+            offer_id = self._extract_offer_id_from_url(url)
+
+            area = self._extract_area(text)
+
+            price = await self._extract_main_price_async(page, text)
+
+            floor, floors_total = self._extract_floor_info(text)
+
+            address = self._extract_address(text, html)
+            description = self._extract_description(text, html)
+
+            build_year = self._extract_build_year(text)
+
+            rooms, _ = self._extract_rooms_and_title(text)
+            housing_type = self._extract_housing_type(text)
+            residential_complex = self._extract_residential_complex(text)
+            year_completion = self._extract_year_completion(text)
+            building_status = self._extract_building_status(text)
+
+            district = self._extract_district(address, text)
+            settlement = self._extract_settlement(address, text)
+            highway = self._extract_highway(text)
+            distance_to_mkad_km = self._extract_distance_to_mkad(text)
+
+            metro_station, metro_time_min = self._extract_metro(text)
+
+            lifts_info = self._extract_lifts_info(text)
+            house_type = self._extract_house_type(text)
+            parking = self._extract_parking(text)
+            complex_type = self._extract_complex_type(text)
+
+            image_urls = self._extract_image_urls(html)
+
+            offer = OfferData(
+                offer_id=offer_id,
+                url=url,
+                price_rub=price,
+                area_m2=area,
+                floor=floor,
+                floors_total=floors_total,
+                address=address,
+                description=description,
+
+                rooms=rooms,
+                housing_type=housing_type,
+                residential_complex=residential_complex,
+                year_completion=year_completion,
+                building_status=building_status,
+
+                district=district,
+                settlement=settlement,
+                highway=highway,
+                distance_to_mkad_km=distance_to_mkad_km,
+
+                metro_station=metro_station,
+                metro_time_min=metro_time_min,
+
+                lifts_info=lifts_info,
+                house_type=house_type,
+                parking=parking,
+                complex_type=complex_type,
+
+                build_year=build_year,
+
+                image_urls=image_urls,
+                image_paths=[],
+            )
+
+            if self.config.download_images and offer.image_urls:
+                try:
+                    offer.image_paths = await asyncio.to_thread(
+                        self._download_images,
+                        offer.offer_id,
+                        offer.image_urls,
+                    )
+                except Exception as e:
+                    print(f"[WARN] РР·РѕР±СЂР°Р¶РµРЅРёСЏ РґР»СЏ РѕР±СЉСЏРІР»РµРЅРёСЏ {offer.offer_id} РЅРµ СЃРѕС…СЂР°РЅРµРЅС‹: {e}")
+                    offer.image_paths = []
+
+            return offer
+
+        except Exception as e:
+            print(f"[ERROR] РћС€РёР±РєР° РїСЂРё РїР°СЂСЃРёРЅРіРµ РѕР±СЉСЏРІР»РµРЅРёСЏ {url}: {e}")
+            return None
+
+        finally:
+            await page.close()
+
     def save_json(self, offers: List[OfferData], path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -332,6 +579,13 @@ class CianPlaywrightParser:
 
         return self._extract_main_price_from_text(text)
 
+    async def _extract_main_price_async(self, page, text: str) -> Optional[int]:
+        price = await self._extract_main_price_from_page_async(page)
+        if price is not None:
+            return price
+
+        return self._extract_main_price_from_text(text)
+
     def _extract_main_price_from_page(self, page) -> Optional[int]:
         selectors = [
             "span[class*='fontSize_28px'][class*='fontWeight_bold']:has-text('₽')",
@@ -345,6 +599,26 @@ class CianPlaywrightParser:
                 count = min(locator.count(), 5)
                 for i in range(count):
                     price = self._parse_price_text(locator.nth(i).inner_text(timeout=1500))
+                    if price is not None:
+                        return price
+            except Exception:
+                continue
+
+        return None
+
+    async def _extract_main_price_from_page_async(self, page) -> Optional[int]:
+        selectors = [
+            "span[class*='fontSize_28px'][class*='fontWeight_bold']:has-text('₽')",
+            "span[class*='fontSize_28px'][class*='fontWeight_bold']",
+            "span[style*='font-size: 28px']:has-text('₽')",
+        ]
+
+        for selector in selectors:
+            try:
+                locator = page.locator(selector)
+                count = min(await locator.count(), 5)
+                for i in range(count):
+                    price = self._parse_price_text(await locator.nth(i).inner_text(timeout=1500))
                     if price is not None:
                         return price
             except Exception:
@@ -540,6 +814,10 @@ class CianPlaywrightParser:
         return sorted(urls)
 
     def _download_images(self, offer_id: str, image_urls: List[str]) -> List[str]:
+        image_urls = self._limited_image_urls(image_urls)
+        if not image_urls:
+            return []
+
         if self.config.image_storage.lower() == "minio":
             return self._upload_images_to_minio(offer_id, image_urls)
 
@@ -555,23 +833,17 @@ class CianPlaywrightParser:
             )
         }
 
-        for i, image_url in enumerate(image_urls, start=1):
-            ext_match = re.search(r"\.(jpg|jpeg|png|webp)", image_url, flags=re.IGNORECASE)
-            ext = ext_match.group(1).lower() if ext_match else "jpg"
-            file_path = os.path.join(save_dir, f"{i}.{ext}")
+        with ThreadPoolExecutor(max_workers=self._image_worker_count(image_urls)) as executor:
+            futures = [
+                executor.submit(self._download_image_to_file, i, image_url, save_dir, headers)
+                for i, image_url in enumerate(image_urls, start=1)
+            ]
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    saved_paths.append(result)
 
-            try:
-                response = requests.get(image_url, headers=headers, timeout=30)
-                response.raise_for_status()
-
-                with open(file_path, "wb") as f:
-                    f.write(response.content)
-
-                saved_paths.append(file_path)
-            except Exception as e:
-                print(f"[WARN] Не скачалось изображение {image_url}: {e}")
-
-        return saved_paths
+        return [path for _, path in sorted(saved_paths)]
 
     def _upload_images_to_minio(self, offer_id: str, image_urls: List[str]) -> List[str]:
         try:
@@ -594,7 +866,7 @@ class CianPlaywrightParser:
             print(f"[WARN] MinIO недоступен, изображения не будут сохранены: {e}")
             return []
 
-        saved_paths = []
+        saved_paths: List[Tuple[int, str]] = []
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -603,29 +875,79 @@ class CianPlaywrightParser:
             )
         }
 
-        for i, image_url in enumerate(image_urls, start=1):
-            ext_match = re.search(r"\.(jpg|jpeg|png|webp)", image_url, flags=re.IGNORECASE)
-            ext = ext_match.group(1).lower() if ext_match else "jpg"
-            object_name = f"offers/{offer_id}/{i}.{ext}"
+        with ThreadPoolExecutor(max_workers=self._image_worker_count(image_urls)) as executor:
+            futures = [
+                executor.submit(self._upload_image_to_minio, client, offer_id, i, image_url, headers)
+                for i, image_url in enumerate(image_urls, start=1)
+            ]
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    saved_paths.append(result)
 
-            try:
-                response = requests.get(image_url, headers=headers, timeout=30)
-                response.raise_for_status()
-                content_type = response.headers.get("Content-Type", f"image/{ext}")
+        return [path for _, path in sorted(saved_paths)]
 
-                client.put_object(
-                    bucket_name=self.config.minio_bucket,
-                    object_name=object_name,
-                    data=BytesIO(response.content),
-                    length=len(response.content),
-                    content_type=content_type,
-                )
+    def _limited_image_urls(self, image_urls: List[str]) -> List[str]:
+        if self.config.max_images_per_offer is None:
+            return image_urls
 
-                saved_paths.append(f"minio://{self.config.minio_bucket}/{object_name}")
-            except Exception as e:
-                print(f"[WARN] Не загрузилось изображение в MinIO {image_url}: {e}")
+        return image_urls[: max(0, self.config.max_images_per_offer)]
 
-        return saved_paths
+    def _image_worker_count(self, image_urls: List[str]) -> int:
+        return max(1, min(self.config.image_concurrency, len(image_urls)))
+
+    def _download_image_to_file(
+        self,
+        index: int,
+        image_url: str,
+        save_dir: str,
+        headers: dict,
+    ) -> Optional[Tuple[int, str]]:
+        ext_match = re.search(r"\.(jpg|jpeg|png|webp)", image_url, flags=re.IGNORECASE)
+        ext = ext_match.group(1).lower() if ext_match else "jpg"
+        file_path = os.path.join(save_dir, f"{index}.{ext}")
+
+        try:
+            response = requests.get(image_url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+
+            return index, file_path
+        except Exception as e:
+            print(f"[WARN] Не скачалось изображение {image_url}: {e}")
+            return None
+
+    def _upload_image_to_minio(
+        self,
+        client,
+        offer_id: str,
+        index: int,
+        image_url: str,
+        headers: dict,
+    ) -> Optional[Tuple[int, str]]:
+        ext_match = re.search(r"\.(jpg|jpeg|png|webp)", image_url, flags=re.IGNORECASE)
+        ext = ext_match.group(1).lower() if ext_match else "jpg"
+        object_name = f"offers/{offer_id}/{index}.{ext}"
+
+        try:
+            response = requests.get(image_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            content_type = response.headers.get("Content-Type", f"image/{ext}")
+
+            client.put_object(
+                bucket_name=self.config.minio_bucket,
+                object_name=object_name,
+                data=BytesIO(response.content),
+                length=len(response.content),
+                content_type=content_type,
+            )
+
+            return index, f"minio://{self.config.minio_bucket}/{object_name}"
+        except Exception as e:
+            print(f"[WARN] Не загрузилось изображение в MinIO {image_url}: {e}")
+            return None
 
     def _extract_rooms_and_title(self, text: str) -> tuple[Optional[int], Optional[str]]:
         patterns = [

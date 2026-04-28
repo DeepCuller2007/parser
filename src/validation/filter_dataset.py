@@ -11,9 +11,9 @@ from listings_schema import photo_listings_schema, raw_listings_schema
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_INPUT_PATH = PROJECT_ROOT / "data/raw/listings.json"
-DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data/processed/listings_valid.json"
-DEFAULT_ERRORS_PATH = PROJECT_ROOT / "data/processed/listings_validation_errors.csv"
+DEFAULT_INPUT_PATH = PROJECT_ROOT / "data/raw/listings_10000.json"
+DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data/processed/listings_valid_3000.json"
+DEFAULT_ERRORS_PATH = PROJECT_ROOT / "data/processed/listings_validation_errors_3000.csv"
 REMOVED_COLUMNS = {"price_per_m2_rub", "living_area_m2", "kitchen_area_m2"}
 
 

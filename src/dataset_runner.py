@@ -37,6 +37,13 @@ def _get_int_env(name: str, default: int) -> int:
     return int(value)
 
 
+def _get_optional_int_env(name: str) -> Optional[int]:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return None
+    return int(value)
+
+
 def _load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> bool:
     path = _resolve_project_path(path)
     if not os.path.exists(path):
@@ -119,6 +126,13 @@ def _build_parser_config(job: Dict[str, Any], remaining_target: int) -> ParserCo
         timeout_ms=_get_int_env("TIMEOUT_MS", 30000),
         pause_between_pages=float(os.getenv("PAUSE_BETWEEN_PAGES", "2.0")),
         pause_between_offers=float(os.getenv("PAUSE_BETWEEN_OFFERS", "1.5")),
+        offer_concurrency=_get_int_env("OFFER_CONCURRENCY", 3),
+        image_concurrency=_get_int_env("IMAGE_CONCURRENCY", 2),
+        max_images_per_offer=_get_optional_int_env("MAX_IMAGES_PER_OFFER"),
+        block_assets=_get_bool_env("BLOCK_BROWSER_ASSETS", True),
+        search_wait_ms=_get_int_env("SEARCH_WAIT_MS", 1200),
+        scroll_wait_ms=_get_int_env("SCROLL_WAIT_MS", 800),
+        offer_wait_ms=_get_int_env("OFFER_WAIT_MS", 2000),
         minio_endpoint=os.getenv("MINIO_ENDPOINT", "localhost:9000"),
         minio_access_key=os.getenv("MINIO_ACCESS_KEY", "parser"),
         minio_secret_key=os.getenv("MINIO_SECRET_KEY", "parser-secret"),
@@ -161,10 +175,25 @@ def main() -> None:
     resume_completed_jobs = _get_bool_env("RESUME_COMPLETED_JOBS", True)
 
     jobs = _load_jobs(jobs_path)
+    output_exists = output_path.exists()
+    progress_exists = progress_path.exists()
     all_offers: List[Dict[str, Any]] = _load_json(output_path, [])
     progress = _load_json(progress_path, {})
     completed_jobs = list(progress.get("completed_jobs", [])) if resume_completed_jobs else []
     seen_offer_ids = _extract_seen_offer_ids(all_offers)
+
+    if not output_exists:
+        _save_json(output_path, all_offers)
+        print(f"[INFO] Created dataset output file: {output_path}")
+
+    if not progress_exists:
+        _save_progress(progress_path, target_offers, len(seen_offer_ids), completed_jobs)
+        print(f"[INFO] Created dataset progress file: {progress_path}")
+
+    print(f"[INFO] Search jobs: {jobs_path}")
+    print(f"[INFO] Dataset output: {output_path}")
+    print(f"[INFO] Dataset progress: {progress_path}")
+    print(f"[INFO] Target unique listings: {target_offers}")
 
     for job in jobs:
         job_name = job["name"]
